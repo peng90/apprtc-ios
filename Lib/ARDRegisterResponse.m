@@ -67,32 +67,39 @@ static NSString const *kARDRegisterWebSocketRestURLKey = @"wss_post_url";
   if (!responseJSON) {
     return nil;
   }
-  ARDRegisterResponse *response = [[ARDRegisterResponse alloc] init];
-  NSString *resultString = responseJSON[kARDRegisterResultKey];
-  response.result = [[self class] resultTypeFromString:resultString];
-  NSDictionary *params = responseJSON[kARDRegisterResultParamsKey];
+  return [self responseFromJSONDictionary:responseJSON];
+}
 
++ (ARDRegisterResponse *)responseFromJSONDictionary:(NSDictionary *)dict {
+  if (![dict isKindOfClass:[NSDictionary class]]) {
+    return nil;
+  }
+  ARDRegisterResponse *response = [[ARDRegisterResponse alloc] init];
+  NSString *resultString = dict[kARDRegisterResultKey];
+  response.result = [[self class] resultTypeFromString:resultString];
+  NSDictionary *params = dict[kARDRegisterResultParamsKey];
+  
   response.isInitiator = [params[kARDRegisterInitiatorKey] boolValue];
   response.roomId = params[kARDRegisterRoomIdKey];
   response.clientId = params[kARDRegisterClientIdKey];
-
+  
   // Parse messages.
   NSArray *messages = params[kARDRegisterMessagesKey];
   NSMutableArray *signalingMessages =
-      [NSMutableArray arrayWithCapacity:messages.count];
+  [NSMutableArray arrayWithCapacity:messages.count];
   for (NSString *message in messages) {
     ARDSignalingMessage *signalingMessage =
-        [ARDSignalingMessage messageFromJSONString:message];
+    [ARDSignalingMessage messageFromJSONString:message];
     [signalingMessages addObject:signalingMessage];
   }
   response.messages = signalingMessages;
-
+  
   // Parse websocket urls.
   NSString *webSocketURLString = params[kARDRegisterWebSocketURLKey];
   response.webSocketURL = [NSURL URLWithString:webSocketURLString];
   NSString *webSocketRestURLString = params[kARDRegisterWebSocketRestURLKey];
   response.webSocketRestURL = [NSURL URLWithString:webSocketRestURLString];
-
+  
   return response;
 }
 

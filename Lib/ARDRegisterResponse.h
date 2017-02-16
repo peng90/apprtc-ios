@@ -45,5 +45,6 @@ typedef NS_ENUM(NSInteger, ARDRegisterResultType) {
 @property(nonatomic, readonly) NSURL *webSocketRestURL;
 
 + (ARDRegisterResponse *)responseFromJSONData:(NSData *)data;
++ (ARDRegisterResponse *)responseFromJSONDictionary:(NSDictionary *)dict;
 
 @end

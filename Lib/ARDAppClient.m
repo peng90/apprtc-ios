@@ -28,6 +28,7 @@
 #import "ARDAppClient.h"
 
 #import <AVFoundation/AVFoundation.h>
+#import <AFNetworking/AFNetworking.h>
 
 #import "ARDMessageResponse.h"
 #import "ARDRegisterResponse.h"
@@ -522,20 +523,23 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   // origin.
   [request addValue:@"Mozilla/5.0" forHTTPHeaderField:@"user-agent"];
   [request addValue:self.serverHostUrl forHTTPHeaderField:@"origin"];
-  [NSURLConnection sendAsyncRequest:request
-                  completionHandler:^(NSURLResponse *response,
-                                      NSData *data,
-                                      NSError *error) {
-    NSArray *turnServers = [NSArray array];
-    if (error) {
-      NSLog(@"Unable to get TURN server.");
-      completionHandler(turnServers);
-      return;
-    }
-    NSDictionary *dict = [NSDictionary dictionaryWithJSONData:data];
-    turnServers = [RTCICEServer serversFromCEODJSONDictionary:dict];
-    completionHandler(turnServers);
-  }];
+  [[AFHTTPSessionManager manager] dataTaskWithRequest:request
+                                    completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                                      if ([responseObject isKindOfClass:[NSDictionary class]]) {
+                                        NSArray *turnServers = [NSArray array];
+                                        if (error) {
+                                          NSLog(@"Unable to get TURN server.");
+                                          completionHandler(turnServers);
+                                          return;
+                                        }
+                                        NSDictionary *dict = (NSDictionary *)responseObject;
+                                        turnServers = [RTCICEServer serversFromCEODJSONDictionary:dict];
+                                        completionHandler(turnServers);
+                                      }
+                                      else {
+                                        completionHandler(nil);
+                                      }
+                                    }];
 }
 
 #pragma mark - Room server methods
@@ -547,20 +551,19 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   NSURL *roomURL = [NSURL URLWithString:urlString];
   NSLog(@"Registering with room server.");
   __weak ARDAppClient *weakSelf = self;
-  [NSURLConnection sendAsyncPostToURL:roomURL
-                             withData:nil
-                    completionHandler:^(BOOL succeeded, NSData *data) {
-    ARDAppClient *strongSelf = weakSelf;
-    if (!succeeded) {
-      NSError *error = [self roomServerNetworkError];
-      [strongSelf.delegate appClient:strongSelf didError:error];
-      completionHandler(nil);
-      return;
-    }
-    ARDRegisterResponse *response =
-        [ARDRegisterResponse responseFromJSONData:data];
-    completionHandler(response);
-  }];
+  [[AFHTTPSessionManager manager] POST:roomURL
+                            parameters:nil
+                              progress:nil
+                               success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+                                 ARDRegisterResponse *response =
+                                 [ARDRegisterResponse responseFromJSONDictionary:responseObject];
+                                 completionHandler(response);
+                               }
+                               failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+                                 ARDAppClient *strongSelf = weakSelf;
+                                 [strongSelf.delegate appClient:strongSelf didError:error];
+                                 completionHandler(nil);
+                               }];
 }
 
 - (void)sendSignalingMessageToRoomServer:(ARDSignalingMessage *)message

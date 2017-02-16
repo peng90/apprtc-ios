@@ -11,6 +11,7 @@
 @implementation ARTCRoomTextInputViewCell
 
 - (void)awakeFromNib {
+    [super awakeFromNib];
     // Initialization code
     [self.errorLabelHeightConstraint setConstant:0.0f];
     [self.textField setDelegate:self];

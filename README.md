@@ -27,10 +27,21 @@ The following resources were useful in helping get this project to where it is t
 To run the app on your iPhone or iPad you can fork this repository and open the `AppRTC.xcworkspace` in Xcode and compile onto your iOS Device to check it out. By default the server address is set to https://apprtc.appspot.com.
 
 ## Using the AppRTC Pod in your App
+### Minimum iOS version requirement
+iOS 8.0 or higher.
+
+### CocoaPods
 If you'd like to incorporate WebRTC Video Chat into your own application, you can install the AppRTC pod:
 ```
 pod install AppRTC
 ```
+Please notice that because one of AppRTC's dependency (`libjingle_peerconnection`) contains a static binary file (`libWebRTC.a`), AppRTC currently is unable to support usage of `use_frameworks!` in podfile.
+
+Following is a list of AppRTC's dependencies:
+* [`libjingle_peerconnection`](https://github.com/pristineio/webrtc-build-scripts)
+* [`SocketRocket`](https://github.com/facebook/SocketRocket)
+* [`AFNetworking`](https://github.com/AFNetworking/AFNetworking)
+
 From there you can look at the `ARTCVideoChatViewController` class in this repo. The following steps below detail the specific changes you will need to make in your app to add Video Chat.
 #### Initialize SSL Peer Connection
 WebRTC can communicate securely over SSL. This is required if you want to test over https://apprtc.appspot.com. You'll need to modify your `AppDelegate.m` class with the following:
@@ -69,7 +80,7 @@ To do this, perform the following:
 ```
     * `ARDAppClientDelegate` - Handles events when remote client connects and disconnect states. Also, handles events when local and remote video feeds are received.
     * `RTCEAGLVideoViewDelegate` - Handles event for determining the video frame size.
-    
+
 3. Define the following properties in your class:
  ```objective-c
 @property (strong, nonatomic) ARDAppClient *client;
@@ -81,12 +92,12 @@ To do this, perform the following:
     * *ARDAppClient* - Performs the connection to the AppRTC Server and joins the chat room
     * *remoteView* - Renders the Remote Video in the view
     * *localView* - Renders the Local Video in the view
-    
+
 4. When initializing the the property variables make sure to set the delegates:
  ```objective-c
     /* Initializes the ARDAppClient with the delegate assignment */
     self.client = [[ARDAppClient alloc] initWithDelegate:self];
-    
+
     /* RTCEAGLVideoViewDelegate provides notifications on video frame dimensions */
     [self.remoteView setDelegate:self];
     [self.localView setDelegate:self];

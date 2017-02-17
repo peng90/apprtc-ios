@@ -29,12 +29,16 @@
 
 #import "ARDUtilities.h"
 #import "SRWebSocket.h"
+#import <AFNetworking/AFNetworking.h>
 
 // TODO(tkchin): move these to a configuration object.
 static NSString const *kARDWSSMessageErrorKey = @"error";
 static NSString const *kARDWSSMessagePayloadKey = @"msg";
 
 @interface ARDWebSocketChannel () <SRWebSocketDelegate>
+
+@property (nonatomic, strong) AFURLSessionManager *urlSessionManager;
+
 @end
 
 @implementation ARDWebSocketChannel {
@@ -57,6 +61,7 @@ static NSString const *kARDWSSMessagePayloadKey = @"msg";
     _delegate = delegate;
     _socket = [[SRWebSocket alloc] initWithURL:url];
     _socket.delegate = self;
+    _urlSessionManager = [[AFURLSessionManager alloc] initWithSessionConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
     NSLog(@"Opening WebSocket.");
     [_socket open];
   }
@@ -113,9 +118,15 @@ static NSString const *kARDWSSMessagePayloadKey = @"msg";
         [NSString stringWithFormat:@"%@/%@/%@",
             [_restURL absoluteString], _roomId, _clientId];
     NSURL *url = [NSURL URLWithString:urlString];
-    [NSURLConnection sendAsyncPostToURL:url
-                               withData:data
-                      completionHandler:nil];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    request.HTTPBody = data;
+    [self.urlSessionManager dataTaskWithRequest:request
+                              completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                                if (error) {
+                                  NSLog(@"Unable to send data. Error: %@", error.localizedDescription);
+                                }
+                              }];
   }
 }
 
@@ -133,7 +144,12 @@ static NSString const *kARDWSSMessagePayloadKey = @"msg";
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
   request.HTTPMethod = @"DELETE";
   request.HTTPBody = nil;
-  [NSURLConnection sendAsyncRequest:request completionHandler:nil];
+  [self.urlSessionManager dataTaskWithRequest:request
+                            completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                              if (error) {
+                                NSLog(@"Unable to disconnect. Error: %@", error.localizedDescription);
+                              }
+                            }];
 }
 
 #pragma mark - SRWebSocketDelegate

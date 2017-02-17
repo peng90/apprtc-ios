@@ -39,5 +39,6 @@ typedef NS_ENUM(NSInteger, ARDMessageResultType) {
 @property(nonatomic, readonly) ARDMessageResultType result;
 
 + (ARDMessageResponse *)responseFromJSONData:(NSData *)data;
++ (ARDMessageResponse *)responseFromJSONDictionary:(NSDictionary *)dict;
 
 @end

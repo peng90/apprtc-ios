@@ -43,12 +43,16 @@ static NSString const *kARDMessageResultKey = @"result";
 
 + (ARDMessageResponse *)responseFromJSONData:(NSData *)data {
   NSDictionary *responseJSON = [NSDictionary dictionaryWithJSONData:data];
-  if (!responseJSON) {
+  return [self responseFromJSONDictionary:responseJSON];
+}
+
++ (ARDMessageResponse *)responseFromJSONDictionary:(NSDictionary *)dict {
+  if (![dict isKindOfClass:[NSDictionary class]]) {
     return nil;
   }
   ARDMessageResponse *response = [[ARDMessageResponse alloc] init];
   response.result =
-      [[self class] resultTypeFromString:responseJSON[kARDMessageResultKey]];
+  [[self class] resultTypeFromString:dict[kARDMessageResultKey]];
   return response;
 }
 

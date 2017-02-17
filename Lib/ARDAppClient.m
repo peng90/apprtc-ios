@@ -80,6 +80,7 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 @property(nonatomic, strong) RTCPeerConnection *peerConnection;
 @property(nonatomic, strong) RTCPeerConnectionFactory *factory;
 @property(nonatomic, strong) NSMutableArray *messageQueue;
+@property(nonatomic, strong) AFURLSessionManager *urlSessionManager;
 
 @property(nonatomic, assign) BOOL isTurnComplete;
 @property(nonatomic, assign) BOOL hasReceivedSdp;
@@ -117,18 +118,26 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
 @synthesize webSocketRestURL = _websocketRestURL;
 
 - (instancetype)initWithDelegate:(id<ARDAppClientDelegate>)delegate {
-  if (self = [super init]) {
+  if (self = [self init]) {
     _delegate = delegate;
+  }
+  return self;
+}
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
     _factory = [[RTCPeerConnectionFactory alloc] init];
+    _urlSessionManager = [[AFURLSessionManager alloc] initWithSessionConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
     _messageQueue = [NSMutableArray array];
     _iceServers = [NSMutableArray arrayWithObject:[self defaultSTUNServer]];
     _serverHostUrl = kARDRoomServerHostUrl;
     _isSpeakerEnabled = YES;
-      
-      [[NSNotificationCenter defaultCenter] addObserver:self
-                                               selector:@selector(orientationChanged:)
-                                                   name:@"UIDeviceOrientationDidChangeNotification"
-                                                 object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(orientationChanged:)
+                                                 name:@"UIDeviceOrientationDidChangeNotification"
+                                               object:nil];
   }
   return self;
 }
@@ -523,23 +532,20 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   // origin.
   [request addValue:@"Mozilla/5.0" forHTTPHeaderField:@"user-agent"];
   [request addValue:self.serverHostUrl forHTTPHeaderField:@"origin"];
-  [[AFHTTPSessionManager manager] dataTaskWithRequest:request
-                                    completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
-                                      if ([responseObject isKindOfClass:[NSDictionary class]]) {
-                                        NSArray *turnServers = [NSArray array];
-                                        if (error) {
-                                          NSLog(@"Unable to get TURN server.");
-                                          completionHandler(turnServers);
-                                          return;
-                                        }
-                                        NSDictionary *dict = (NSDictionary *)responseObject;
-                                        turnServers = [RTCICEServer serversFromCEODJSONDictionary:dict];
-                                        completionHandler(turnServers);
-                                      }
-                                      else {
-                                        completionHandler(nil);
-                                      }
-                                    }];
+  [self.urlSessionManager dataTaskWithRequest:request
+                            completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                              if (!error && [responseObject isKindOfClass:[NSDictionary class]]) {
+                                NSArray *turnServers = [NSArray array];
+                                NSDictionary *dict = (NSDictionary *)responseObject;
+                                turnServers = [RTCICEServer serversFromCEODJSONDictionary:dict];
+                                completionHandler(turnServers);
+                              }
+                              else {
+                                NSLog(@"Unable to get TURN server.");
+                                completionHandler(nil);
+                                return;
+                              }
+                            }];
 }
 
 #pragma mark - Room server methods
@@ -551,19 +557,21 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   NSURL *roomURL = [NSURL URLWithString:urlString];
   NSLog(@"Registering with room server.");
   __weak ARDAppClient *weakSelf = self;
-  [[AFHTTPSessionManager manager] POST:roomURL
-                            parameters:nil
-                              progress:nil
-                               success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
-                                 ARDRegisterResponse *response =
-                                 [ARDRegisterResponse responseFromJSONDictionary:responseObject];
-                                 completionHandler(response);
-                               }
-                               failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
-                                 ARDAppClient *strongSelf = weakSelf;
-                                 [strongSelf.delegate appClient:strongSelf didError:error];
-                                 completionHandler(nil);
-                               }];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:roomURL];
+  request.HTTPMethod = @"POST";
+  [self.urlSessionManager dataTaskWithRequest:request
+                            completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                              if (!error && [responseObject isKindOfClass:[NSDictionary class]]) {
+                                ARDRegisterResponse *response =
+                                [ARDRegisterResponse responseFromJSONDictionary:responseObject];
+                                completionHandler(response);
+                              }
+                              else {
+                                ARDAppClient *strongSelf = weakSelf;
+                                [strongSelf.delegate appClient:strongSelf didError:error];
+                                completionHandler(nil);
+                              }
+                            }];
 }
 
 - (void)sendSignalingMessageToRoomServer:(ARDSignalingMessage *)message
@@ -575,52 +583,58 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   NSURL *url = [NSURL URLWithString:urlString];
   NSLog(@"C->RS POST: %@", message);
   __weak ARDAppClient *weakSelf = self;
-  [NSURLConnection sendAsyncPostToURL:url
-                             withData:data
-                    completionHandler:^(BOOL succeeded, NSData *data) {
-    ARDAppClient *strongSelf = weakSelf;
-    if (!succeeded) {
-      NSError *error = [self roomServerNetworkError];
-      [strongSelf.delegate appClient:strongSelf didError:error];
-      return;
-    }
-    ARDMessageResponse *response =
-        [ARDMessageResponse responseFromJSONData:data];
-    NSError *error = nil;
-    switch (response.result) {
-      case kARDMessageResultTypeSuccess:
-        break;
-      case kARDMessageResultTypeUnknown:
-        error =
-            [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
-                                       code:kARDAppClientErrorUnknown
-                                   userInfo:@{
-          NSLocalizedDescriptionKey: @"Unknown error.",
-        }];
-      case kARDMessageResultTypeInvalidClient:
-        error =
-            [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
-                                       code:kARDAppClientErrorInvalidClient
-                                   userInfo:@{
-          NSLocalizedDescriptionKey: @"Invalid client.",
-        }];
-        break;
-      case kARDMessageResultTypeInvalidRoom:
-        error =
-            [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
-                                       code:kARDAppClientErrorInvalidRoom
-                                   userInfo:@{
-          NSLocalizedDescriptionKey: @"Invalid room.",
-        }];
-        break;
-    };
-    if (error) {
-      [strongSelf.delegate appClient:strongSelf didError:error];
-    }
-    if (completionHandler) {
-      completionHandler(response);
-    }
-  }];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+  request.HTTPMethod = @"POST";
+  request.HTTPBody = data;
+  [self.urlSessionManager dataTaskWithRequest:request
+                            completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                              ARDAppClient *strongSelf = weakSelf;
+                              if (!error && [responseObject isKindOfClass:[NSDictionary class]]) {
+                                ARDMessageResponse *response =
+                                [ARDMessageResponse responseFromJSONDictionary:responseObject];
+                                NSError *responseError = nil;
+                                switch (response.result) {
+                                  case kARDMessageResultTypeSuccess:
+                                    break;
+                                  case kARDMessageResultTypeUnknown:
+                                    responseError =
+                                    [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
+                                                               code:kARDAppClientErrorUnknown
+                                                           userInfo:@{
+                                                                      NSLocalizedDescriptionKey: @"Unknown error.",
+                                                                      }];
+                                  case kARDMessageResultTypeInvalidClient:
+                                    responseError =
+                                    [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
+                                                               code:kARDAppClientErrorInvalidClient
+                                                           userInfo:@{
+                                                                      NSLocalizedDescriptionKey: @"Invalid client.",
+                                                                      }];
+                                    break;
+                                  case kARDMessageResultTypeInvalidRoom:
+                                    responseError =
+                                    [[NSError alloc] initWithDomain:kARDAppClientErrorDomain
+                                                               code:kARDAppClientErrorInvalidRoom
+                                                           userInfo:@{
+                                                                      NSLocalizedDescriptionKey: @"Invalid room.",
+                                                                      }];
+                                    break;
+                                };
+                                if (responseError) {
+                                  [strongSelf.delegate appClient:strongSelf didError:responseError];
+                                }
+                                if (completionHandler) {
+                                  completionHandler(response);
+                                }
+                              }
+                              else {
+                                [strongSelf.delegate appClient:strongSelf didError:error];
+                                if (completionHandler) {
+                                  completionHandler(nil);
+                                }
+                                return;
+                              }
+                            }];
 }
 
 - (void)unregisterWithRoomServer {
@@ -629,13 +643,17 @@ static NSInteger kARDAppClientErrorInvalidRoom = -7;
   NSURL *url = [NSURL URLWithString:urlString];
   NSLog(@"C->RS: BYE");
     //Make sure to do a POST
-    [NSURLConnection sendAsyncPostToURL:url withData:nil completionHandler:^(BOOL succeeded, NSData *data) {
-        if (succeeded) {
-            NSLog(@"Unregistered from room server.");
-        } else {
-            NSLog(@"Failed to unregister from room server.");
-        }
-    }];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+  request.HTTPMethod = @"POST";
+  [self.urlSessionManager dataTaskWithRequest:request
+                            completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
+                              if (!error) {
+                                NSLog(@"Unregistered from room server.");
+                              }
+                              else {
+                                NSLog(@"Failed to unregister from room server. Error: %@", error.localizedDescription);
+                              }
+                            }];
 }
 
 - (NSError *)roomServerNetworkError {
